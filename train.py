@@ -88,6 +88,7 @@ def forward_step(
         duration=duration,
         masking_ratio=masking_ratio,
     )
+
     # calculate losses
     pitch_loss = F.cross_entropy(pred_pitch, pitch, reduction="none")
     velocity_loss = F.mse_loss(pred_dynamics[:, :, 0], velocity, reduction="none")
@@ -95,12 +96,17 @@ def forward_step(
     duration_loss = F.mse_loss(pred_dynamics[:, :, 2], duration, reduction="none")
 
     # normalize losses
-    pitch_loss = loss_lambdas.pitch * (pitch_loss * mask).sum() / mask.sum()
-    velocity_loss = loss_lambdas.velocity * (velocity_loss * mask).sum() / mask.sum()
-    dstart_loss = loss_lambdas.dstart * (dstart_loss * mask).sum() / mask.sum()
-    duration_loss = loss_lambdas.duration * (duration_loss * mask).sum() / mask.sum()
+    pitch_loss = (pitch_loss * mask).sum() / mask.sum()
+    velocity_loss = (velocity_loss * mask).sum() / mask.sum()
+    dstart_loss = (dstart_loss * mask).sum() / mask.sum()
+    duration_loss = (duration_loss * mask).sum() / mask.sum()
 
-    loss = pitch_loss + velocity_loss + dstart_loss + duration_loss
+    loss = (
+        loss_lambdas.pitch * pitch_loss
+        + loss_lambdas.velocity * velocity_loss
+        + loss_lambdas.dstart * dstart_loss
+        + loss_lambdas.duration * duration_loss
+    )
 
     return loss, pitch_loss, velocity_loss, dstart_loss, duration_loss
 
