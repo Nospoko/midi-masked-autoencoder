@@ -5,6 +5,21 @@ from timm.models.vision_transformer import Block
 from models.modules.masking import random_masking
 from models.modules.positional_embedding import SinusoidalPositionEmbeddings
 
+class OutputBlock(nn.Module):
+    def __init__(self, features: int, out_features: int):
+        super().__init__()
+
+        self.block = nn.Sequential(
+            nn.Linear(features, features),
+            nn.SiLU(),
+            nn.Linear(features, features),
+            nn.SiLU(),
+            nn.Linear(features, out_features)
+        )
+
+    def forward(self, x: torch.Tensor):
+        return self.block(x)
+
 
 class MidiMaskedAutoencoder(nn.Module):
     def __init__(
@@ -21,7 +36,7 @@ class MidiMaskedAutoencoder(nn.Module):
 
         # embedding
         encoder_half_dim = encoder_dim // 2
-        self.pitch_embedding = nn.Embedding(num_embeddings=128, embedding_dim=encoder_half_dim)
+        self.pitch_embedding = nn.Embedding(num_embeddings=88, embedding_dim=encoder_half_dim)
         self.dynamics_embedding = nn.Linear(3, encoder_half_dim)
 
         # encoder
@@ -59,8 +74,10 @@ class MidiMaskedAutoencoder(nn.Module):
         )
         self.decoder_out_norm = nn.LayerNorm(decoder_dim)
 
-        self.pitch_out = nn.Linear(decoder_dim, out_features=128)
-        self.dynamics_out = nn.Linear(decoder_dim, out_features=3)
+        self.pitch_out = OutputBlock(decoder_dim, out_features=88)
+        self.velocity_out = OutputBlock(decoder_dim, out_features=1)
+        self.dstart_out = OutputBlock(decoder_dim, out_features=1)
+        self.duration_out = OutputBlock(decoder_dim, out_features=1)
 
     def forward_encoder(
         self, pitch: torch.Tensor, velocity: torch.Tensor, dstart: torch.Tensor, duration: torch.Tensor, masking_ratio: float
@@ -126,14 +143,16 @@ class MidiMaskedAutoencoder(nn.Module):
         x = x[:, 1:, :]
 
         pred_pitch = self.pitch_out(x)
-        pred_dynamics = self.dynamics_out(x)
+        pred_velocity = self.velocity_out(x)[:, :, 0]
+        pred_dstart = self.dstart_out(x)[:, :, 0]
+        pred_duration = self.duration_out(x)[:, :, 0]
 
-        return pred_pitch, pred_dynamics
+        return pred_pitch, pred_velocity, pred_dstart, pred_duration
 
     def forward(
-        self, pitch: torch.Tensor, velocity: torch.Tensor, dstart: torch.Tensor, duration: torch.Tensor, masking_ratio: float
+        self, pitch: torch.Tensor, velocity: torch.Tensor, dstart: torch.Tensor, duration: torch.Tensor, masking_ratio: float = 0.15
     ):
         latent, mask, ids_restore = self.forward_encoder(pitch, velocity, dstart, duration, masking_ratio=masking_ratio)
-        pred_pitch, pred_dynamics = self.forward_decoder(latent, ids_restore)
+        pred_pitch, pred_velocity, pred_dstart, pred_duration = self.forward_decoder(latent, ids_restore)
 
-        return pred_pitch, pred_dynamics, mask
+        return pred_pitch, pred_velocity, pred_dstart, pred_duration, mask

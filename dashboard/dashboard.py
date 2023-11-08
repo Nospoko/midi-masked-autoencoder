@@ -3,6 +3,7 @@ import glob
 import fortepyan as ff
 import streamlit as st
 
+
 def display_pianoroll(title, orginal_midi: str, generated_midi: str):
     st.title(title)
 
@@ -19,7 +20,6 @@ def display_pianoroll(title, orginal_midi: str, generated_midi: str):
         piece = ff.MidiFile(generated_midi).piece
         fig = ff.view.draw_pianoroll_with_velocities(piece)
         st.pyplot(fig)
-                
 
 
 def main():
@@ -32,7 +32,6 @@ def main():
 
     original_midi = f"tmp/midi/original/{selected_filename}-original.midi"
     genrated_midi = f"tmp/midi/generated/{selected_filename}-model.midi"
-
 
     display_pianoroll(
         title=selected_filename,

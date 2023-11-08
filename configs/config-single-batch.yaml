@@ -3,13 +3,13 @@ hydra:
     chdir: False
 
 train:
-  dataset_name: ["JasiekKaczmarczyk/giant-midi-sustain-quantized"] # huggingface dataset
-  batch_size: 16
-  num_workers: 8
+  dataset_name: ["JasiekKaczmarczyk/maestro-v1-sustain-masked"] # huggingface dataset
+  batch_size: 1
+  num_workers: 1
   lr: 3e-4
   weight_decay: 0.01
-  pitch_shift_probability: 0.5
-  time_stretch_probability: 0.5
+  pitch_shift_probability: 0.0
+  time_stretch_probability: 0.0
   num_epochs: 1000
   device: "cuda"
   precision: "16-mixed" # not implemented yet
@@ -23,13 +23,13 @@ train:
 
 
 model:
-  encoder_dim: 768
-  encoder_depth: 12
-  encoder_num_heads: 12
-  decoder_dim: 512
-  decoder_depth: 8
-  decoder_num_heads: 16
-  mlp_ratio: 4.
+  encoder_dim: 384
+  encoder_depth: 6
+  encoder_num_heads: 8
+  decoder_dim: 256
+  decoder_depth: 4
+  decoder_num_heads: 8
+  mlp_ratio: 2.
 
 paths:
   save_ckpt_dir: "checkpoints" # directory where checkpoints will be saved
@@ -38,5 +38,5 @@ paths:
   hf_repo_id: null # repo id to upload model to huggingface if null model is not uploaded
 
 logger:
-  run_name: overfit-single-batch-${now:%Y-%m-%d-%H-%M}
+  run_name: overfit-sample-${now:%Y-%m-%d-%H-%M}
   log_every_n_steps: 1

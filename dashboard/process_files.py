@@ -88,7 +88,7 @@ def process_files_based_on_query(
             dstarts = batch["dstart"].to(device)
             durations = batch["duration"].to(device)
 
-            pred_pitches, pred_dynamics, mask = model(
+            pred_pitches, pred_velocities, pred_dstarts, pred_durations, mask = model(
                 pitch=pitches,
                 velocity=velocities,
                 dstart=dstarts,
@@ -96,31 +96,25 @@ def process_files_based_on_query(
                 masking_ratio=0.5,
             )
             mask = mask.detach().bool()
-
-            pred_pitches[:, :, :21] = -100
-            pred_pitches[:, :, 108:] = -100
             pred_pitches = torch.argmax(pred_pitches, dim=-1)
-            pred_velocities = pred_dynamics[:, :, 0]
-            pred_dstarts = pred_dynamics[:, :, 1]
-            pred_durations = pred_dynamics[:, :, 2]
 
-            # replace tokens that were not masked with original values
-            # gen_pitches = pitches.clone()
-            # gen_velocities = velocities.clone()
-            # gen_dstarts = dstarts.clone()
-            # gen_durations = durations.clone()
+            # gen_pitches = pred_pitches
+            # gen_velocities = pred_velocities
+            # gen_dstarts = pred_dstarts
+            # gen_durations = pred_durations
 
+            # replace tokens that were masked with generated values
             gen_pitches = torch.where(mask, pred_pitches, pitches)
             gen_velocities = torch.where(mask, pred_velocities, velocities)
             gen_dstarts = torch.where(mask, pred_dstarts, dstarts)
             gen_durations = torch.where(mask, pred_durations, durations)
 
             for i in range(len(pitches)):
-                pitch = pitches[i].cpu().numpy()
+                pitch = pitches[i].cpu().numpy() + 21
                 velocity = velocities[i].cpu().numpy()
                 dstart = dstarts[i].cpu().numpy()
                 duration = durations[i].cpu().numpy()
-                gen_pitch = gen_pitches[i].cpu().numpy()
+                gen_pitch = gen_pitches[i].cpu().numpy() + 21
                 gen_velocity = gen_velocities[i].cpu().numpy()
                 gen_dstart = gen_dstarts[i].cpu().numpy()
                 gen_duration = gen_durations[i].cpu().numpy()
@@ -144,10 +138,11 @@ def main():
     parser.add_argument("--query", type=str)
     args = parser.parse_args()
 
-    checkpoint = torch.load("checkpoints/midi-masked-autoencoder-2023-10-26-09-49-params-110.79M.ckpt")
+    checkpoint = torch.load("checkpoints/mae10m-2023-11-08-20-29-params-9.88M.ckpt")
 
     cfg = checkpoint["config"]
-    device = cfg.train.device
+    # device = cfg.train.device
+    device = "cpu"
 
     model = MidiMaskedAutoencoder(
         encoder_dim=cfg.model.encoder_dim,

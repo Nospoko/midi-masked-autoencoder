@@ -9,6 +9,7 @@ from omegaconf import OmegaConf
 from huggingface_hub import upload_file
 from torch.utils.data import Subset, DataLoader
 from datasets import load_dataset, concatenate_datasets
+import torchmetrics.functional as M
 
 import wandb
 from data.dataset import MidiDataset
@@ -81,7 +82,7 @@ def forward_step(
     dstart = batch["dstart"].to(device)
     duration = batch["duration"].to(device)
 
-    pred_pitch, pred_dynamics, mask = model(
+    pred_pitch, pred_velocity, pred_dstart, pred_duration, mask = model(
         pitch=pitch,
         velocity=velocity,
         dstart=dstart,
@@ -89,11 +90,13 @@ def forward_step(
         masking_ratio=masking_ratio,
     )
 
+    pred_pitch = pred_pitch.permute(0, 2, 1)
+
     # calculate losses
     pitch_loss = F.cross_entropy(pred_pitch, pitch, reduction="none")
-    velocity_loss = F.mse_loss(pred_dynamics[:, :, 0], velocity, reduction="none")
-    dstart_loss = F.mse_loss(pred_dynamics[:, :, 1], dstart, reduction="none")
-    duration_loss = F.mse_loss(pred_dynamics[:, :, 2], duration, reduction="none")
+    velocity_loss = F.mse_loss(pred_velocity, velocity, reduction="none")
+    dstart_loss = F.mse_loss(pred_dstart, dstart, reduction="none")
+    duration_loss = F.mse_loss(pred_duration, duration, reduction="none")
 
     # normalize losses
     pitch_loss = (pitch_loss * mask).sum() / mask.sum()
@@ -108,7 +111,9 @@ def forward_step(
         + loss_lambdas.duration * duration_loss
     )
 
-    return loss, pitch_loss, velocity_loss, dstart_loss, duration_loss
+    pitch_acc = M.accuracy(pred_pitch, pitch, task="multiclass", num_classes=88)
+
+    return loss, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc
 
 
 @torch.no_grad()
@@ -126,10 +131,11 @@ def validation_epoch(
     velocity_loss_epoch = 0.0
     dstart_loss_epoch = 0.0
     duration_loss_epoch = 0.0
+    pitch_acc_epoch = 0.0
 
     for batch_idx, batch in val_loop:
         # metrics returns loss and additional metrics if specified in step function
-        loss, pitch_loss, velocity_loss, dstart_loss, duration_loss = forward_step(
+        loss, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc = forward_step(
             model, batch, masking_ratio, loss_lambdas, device
         )
 
@@ -140,6 +146,7 @@ def validation_epoch(
                 "velocity_loss": velocity_loss.item(),
                 "dstart_loss": dstart_loss.item(),
                 "duration_loss": duration_loss.item(),
+                "pitch_acc": pitch_acc.item()
             }
         )
 
@@ -148,6 +155,7 @@ def validation_epoch(
         velocity_loss_epoch += velocity_loss.item()
         dstart_loss_epoch += dstart_loss.item()
         duration_loss_epoch += duration_loss.item()
+        pitch_acc_epoch += pitch_acc.item()
 
     metrics = {
         "loss_epoch": loss_epoch / len(dataloader),
@@ -155,6 +163,7 @@ def validation_epoch(
         "velocity_loss": velocity_loss_epoch / len(dataloader),
         "dstart_loss": dstart_loss_epoch / len(dataloader),
         "duration_loss": duration_loss_epoch / len(dataloader),
+        "pitch_acc": pitch_acc_epoch / len(dataloader),
     }
     return metrics
 
@@ -256,12 +265,25 @@ def train(cfg: OmegaConf):
         velocity_loss_epoch = 0.0
         dstart_loss_epoch = 0.0
         duration_loss_epoch = 0.0
+        pitch_acc_epoch = 0.0
 
         for batch_idx, batch in train_loop:
             # metrics returns loss and additional metrics if specified in step function
-            loss, pitch_loss, velocity_loss, dstart_loss, duration_loss = forward_step(
+            loss, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc = forward_step(
                 model, batch, masking_ratio, loss_lambdas, device
             )
+
+            # if dstart_loss > 1.0:
+            #     import matplotlib.pyplot as plt
+            #     import numpy as np
+            #     ds = batch["dstart"].numpy()
+            #     print(ds.max())
+            #     print(ds.min())
+            #     print(ds.mean())
+            #     print(np.median(ds))
+            #     plt.hist(ds.reshape(-1))
+            #     plt.show()
+            #     return
 
             optimizer.zero_grad()
             loss.backward()
@@ -273,6 +295,7 @@ def train(cfg: OmegaConf):
                 "velocity_loss": velocity_loss.item(),
                 "dstart_loss": dstart_loss.item(),
                 "duration_loss": duration_loss.item(),
+                "pitch_acc": pitch_acc.item(),
             }
 
             train_loop.set_postfix(stats)
@@ -283,6 +306,7 @@ def train(cfg: OmegaConf):
             velocity_loss_epoch += velocity_loss.item()
             dstart_loss_epoch += dstart_loss.item()
             duration_loss_epoch += duration_loss.item()
+            pitch_acc_epoch += pitch_acc.item()
 
             if (batch_idx + 1) % cfg.logger.log_every_n_steps == 0:
                 stats = {"train/" + key: value for key, value in stats.items()}
@@ -299,6 +323,7 @@ def train(cfg: OmegaConf):
             "train/velocity_loss_epoch": velocity_loss_epoch / len(train_dataloader),
             "train/dstart_loss_epoch": dstart_loss_epoch / len(train_dataloader),
             "train/duration_loss_epoch": duration_loss_epoch / len(train_dataloader),
+            "train/pitch_acc_epoch": pitch_acc_epoch / len(train_dataloader),
         }
 
         model.eval()

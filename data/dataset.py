@@ -49,10 +49,10 @@ class MidiDataset(Dataset):
         tokens = {
             "filename": record["midi_filename"],
             "source": record["source"],
-            "pitch": torch.tensor(record["pitch"], dtype=torch.long),
+            "pitch": torch.tensor(record["pitch"], dtype=torch.long) - 21,
             "velocity": (torch.tensor(record["velocity"], dtype=torch.float) / 64) - 1,
-            "dstart": torch.tensor(record["dstart"], dtype=torch.float),
-            "duration": torch.tensor(record["dstart"], dtype=torch.float),
+            "dstart": torch.tensor(record["dstart"], dtype=torch.float).clip(0.0, 5.0),
+            "duration": torch.tensor(record["duration"], dtype=torch.float).clip(0.0, 5.0),
         }
 
         return tokens
