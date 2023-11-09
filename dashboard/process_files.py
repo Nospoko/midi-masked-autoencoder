@@ -1,4 +1,6 @@
 import os
+import uuid
+import pickle
 import argparse
 
 import torch
@@ -52,12 +54,15 @@ def denormalize_velocity(velocity: np.ndarray):
     return ((velocity + 1) * 64).astype("int")
 
 
-def to_midi_piece(pitch: np.ndarray, dstart: np.ndarray, duration: np.ndarray, velocity: np.ndarray) -> ff.MidiPiece:
+def to_midi_piece(
+    pitch: np.ndarray, dstart: np.ndarray, duration: np.ndarray, velocity: np.ndarray, mask: np.ndarray = None
+) -> ff.MidiPiece:
     record = {
         "pitch": pitch,
         "velocity": velocity,
-        "dstart": dstart,
-        "duration": duration,
+        "dstart": dstart.astype("float"),
+        "duration": duration.astype("float"),
+        "mask": mask,
     }
 
     df = pd.DataFrame(record)
@@ -71,7 +76,7 @@ def process_files_based_on_query(
     model: MidiMaskedAutoencoder,
     dataset_name: str,
     query: str,
-    save_dir: str,
+    save_path: str,
     device: torch.device,
 ):
     dataset = preprocess_dataset(
@@ -81,8 +86,11 @@ def process_files_based_on_query(
 
     dataloader = DataLoader(dataset, batch_size=1024, num_workers=8, shuffle=False)
 
+    processed_midi_pieces = {}
+
     with torch.no_grad():
         for batch in dataloader:
+            filenames = batch["filename"]
             pitches = batch["pitch"].to(device)
             velocities = batch["velocity"].to(device)
             dstarts = batch["dstart"].to(device)
@@ -110,6 +118,8 @@ def process_files_based_on_query(
             gen_durations = torch.where(mask, pred_durations, durations)
 
             for i in range(len(pitches)):
+                name = f"{filenames[i]}-{str(uuid.uuid1())[:8]}"
+
                 pitch = pitches[i].cpu().numpy() + 21
                 velocity = velocities[i].cpu().numpy()
                 dstart = dstarts[i].cpu().numpy()
@@ -119,18 +129,28 @@ def process_files_based_on_query(
                 gen_dstart = gen_dstarts[i].cpu().numpy()
                 gen_duration = gen_durations[i].cpu().numpy()
 
+                m = mask[i].cpu().numpy()
+
                 velocity = denormalize_velocity(velocity)
                 gen_velocity = denormalize_velocity(gen_velocity)
 
-                original_piece = to_midi_piece(pitch, dstart, duration, velocity)
-                model_piece = to_midi_piece(gen_pitch, gen_dstart, gen_duration, gen_velocity)
+                original_piece = to_midi_piece(pitch, dstart, duration, velocity, mask=m)
+                model_piece = to_midi_piece(gen_pitch, gen_dstart, gen_duration, gen_velocity, mask=m)
 
-                original_midi = original_piece.to_midi()
-                model_midi = model_piece.to_midi()
+                processed_midi_pieces[name] = {
+                    "original": original_piece,
+                    "generated": model_piece,
+                }
 
-                # save as midi
-                original_midi.write(f"{save_dir}/original/{query}-{i}-original.midi")
-                model_midi.write(f"{save_dir}/generated/{query}-{i}-model.midi")
+                # original_midi = original_piece.to_midi()
+                # model_midi = model_piece.to_midi()
+
+                # # save as midi
+                # original_midi.write(f"{save_path}/original/{query}-{i}-original.midi")
+                # model_midi.write(f"{save_path}/generated/{query}-{i}-model.midi")
+
+    with open(save_path, "wb") as handle:
+        pickle.dump(processed_midi_pieces, handle)
 
 
 def main():
@@ -138,7 +158,7 @@ def main():
     parser.add_argument("--query", type=str)
     args = parser.parse_args()
 
-    checkpoint = torch.load("checkpoints/mae10m-2023-11-08-20-29-params-9.88M.ckpt")
+    checkpoint = torch.load("checkpoints/mae10m-2023-11-09-08-50-params-9.88M.ckpt")
 
     cfg = checkpoint["config"]
     # device = cfg.train.device
@@ -158,12 +178,12 @@ def main():
     model.eval()
 
     dataset_name = "JasiekKaczmarczyk/maestro-v1-sustain-masked"
-    save_dir = "tmp/midi"
+    save_path = "tmp/processed_files.pickle"
 
-    makedir_if_not_exists(f"{save_dir}/generated")
-    makedir_if_not_exists(f"{save_dir}/original")
+    # makedir_if_not_exists(f"{save_path}/generated")
+    # makedir_if_not_exists(f"{save_path}/original")
 
-    process_files_based_on_query(model, dataset_name=dataset_name, query=args.query, save_dir="tmp/midi", device=device)
+    process_files_based_on_query(model, dataset_name=dataset_name, query=args.query, save_path=save_path, device=device)
 
 
 if __name__ == "__main__":

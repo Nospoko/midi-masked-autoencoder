@@ -6,10 +6,10 @@ from tqdm import tqdm
 import torch.optim as optim
 import torch.nn.functional as F
 from omegaconf import OmegaConf
+import torchmetrics.functional as M
 from huggingface_hub import upload_file
 from torch.utils.data import Subset, DataLoader
 from datasets import load_dataset, concatenate_datasets
-import torchmetrics.functional as M
 
 import wandb
 from data.dataset import MidiDataset
@@ -146,7 +146,7 @@ def validation_epoch(
                 "velocity_loss": velocity_loss.item(),
                 "dstart_loss": dstart_loss.item(),
                 "duration_loss": duration_loss.item(),
-                "pitch_acc": pitch_acc.item()
+                "pitch_acc": pitch_acc.item(),
             }
         )
 

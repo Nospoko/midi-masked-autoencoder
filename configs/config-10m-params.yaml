@@ -6,15 +6,15 @@ train:
   dataset_name: ["JasiekKaczmarczyk/giant-midi-sustain-masked", "JasiekKaczmarczyk/pianofor-ai-sustain-masked", "JasiekKaczmarczyk/maestro-v1-sustain-masked"] # huggingface dataset
   batch_size: 768
   num_workers: 8
-  lr: 3e-4
+  lr: 3e-5
   weight_decay: 0.01
   pitch_shift_probability: 0.5
   time_stretch_probability: 0.5
-  num_epochs: 5
+  num_epochs: 10
   device: "cuda"
   precision: "16-mixed" # not implemented yet
   overfit_single_batch: False
-  masking_ratio: 0.15
+  masking_ratio: 0.25
   loss_lambdas:
     pitch: 1.
     velocity: 1.
@@ -33,7 +33,7 @@ model:
 
 paths:
   save_ckpt_dir: "checkpoints" # directory where checkpoints will be saved
-  load_ckpt_path: null # if not None, specifies path to model state dict which will be loaded
+  load_ckpt_path: "checkpoints/mae10m-2023-11-09-08-50-params-9.88M.ckpt" # if not None, specifies path to model state dict which will be loaded
   log_dir: "logs"
   hf_repo_id: null # repo id to upload model to huggingface if null model is not uploaded
 

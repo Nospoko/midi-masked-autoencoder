@@ -5,16 +5,13 @@ from timm.models.vision_transformer import Block
 from models.modules.masking import random_masking
 from models.modules.positional_embedding import SinusoidalPositionEmbeddings
 
+
 class OutputBlock(nn.Module):
     def __init__(self, features: int, out_features: int):
         super().__init__()
 
         self.block = nn.Sequential(
-            nn.Linear(features, features),
-            nn.SiLU(),
-            nn.Linear(features, features),
-            nn.SiLU(),
-            nn.Linear(features, out_features)
+            nn.Linear(features, features), nn.SiLU(), nn.Linear(features, features), nn.SiLU(), nn.Linear(features, out_features)
         )
 
     def forward(self, x: torch.Tensor):
@@ -150,7 +147,12 @@ class MidiMaskedAutoencoder(nn.Module):
         return pred_pitch, pred_velocity, pred_dstart, pred_duration
 
     def forward(
-        self, pitch: torch.Tensor, velocity: torch.Tensor, dstart: torch.Tensor, duration: torch.Tensor, masking_ratio: float = 0.15
+        self,
+        pitch: torch.Tensor,
+        velocity: torch.Tensor,
+        dstart: torch.Tensor,
+        duration: torch.Tensor,
+        masking_ratio: float = 0.15,
     ):
         latent, mask, ids_restore = self.forward_encoder(pitch, velocity, dstart, duration, masking_ratio=masking_ratio)
         pred_pitch, pred_velocity, pred_dstart, pred_duration = self.forward_decoder(latent, ids_restore)
