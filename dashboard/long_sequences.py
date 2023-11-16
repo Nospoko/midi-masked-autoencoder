@@ -21,33 +21,32 @@ def makedir_if_not_exists(dir: str):
 
 
 def preprocess_dataset(
-    dataset_name: str,
-    query: str,
+    index: int,
 ):
-    dataset = load_dataset(dataset_name, split="validation")
+    dataset = load_dataset("roszcz/maestro-v1-sustain", split="validation")
+    record = dataset[index]
 
-    ds = MidiDataset(dataset)
+    piece = ff.MidiPiece.from_huggingface(record)
 
-    idx_query = [i for i, name in enumerate(ds.dataset["source"]) if str.lower(query) in str.lower(name)]
+    piece.df["next_start"] = piece.df.start.shift(-1)
+    piece.df["dstart"] = piece.df.next_start - piece.df.start
+    piece.df["dstart"] = piece.df["dstart"].fillna(0)
 
-    ds = Subset(ds, indices=list(idx_query))
+    midi_filename = piece.source["midi_filename"]
 
-    return ds
+    # sanity check, replace NaN with 0
+    if np.any(np.isnan(piece.df["dstart"])):
+        piece.df["dstart"] = np.nan_to_num(piece.df["dstart"], copy=False)
 
+    data = {
+        "filename": midi_filename,
+        "pitch": torch.tensor(piece.df["pitch"], dtype=torch.long) - 21,
+        "velocity": (torch.tensor(piece.df["velocity"], dtype=torch.float) / 64) - 1,
+        "dstart": torch.tensor(piece.df["dstart"], dtype=torch.float).clip(0.0, 5.0),
+        "duration": torch.tensor(piece.df["duration"], dtype=torch.float).clip(0.0, 5.0),
+    }
 
-def display_audio(title, midi_files: list[str], mp3_files: list[str]):
-    st.title(title)
-
-    cols = st.columns([2, 2])
-    fig_titles = ["### Original", "### Model"]
-
-    for i, col in enumerate(cols):
-        with col:
-            st.write(fig_titles[i])
-            piece = ff.MidiFile(midi_files[i]).piece
-            fig = ff.view.draw_pianoroll_with_velocities(piece)
-            st.pyplot(fig)
-            st.audio(mp3_files[i], format="audio/mp3")
+    return data
 
 
 def denormalize_velocity(velocity: np.ndarray):
@@ -72,29 +71,24 @@ def to_midi_piece(
     return ff.MidiPiece(df)
 
 
-def process_files_based_on_query(
+def process_file(
     model: MidiMaskedAutoencoder,
-    dataset_name: str,
-    query: str,
+    index: int,
     save_path: str,
     device: torch.device,
 ):
-    dataset = preprocess_dataset(
-        dataset_name,
-        query=query,
-    )
+    batch = preprocess_dataset(index)
 
-    dataloader = DataLoader(dataset, batch_size=1024, num_workers=8, shuffle=False)
+    # dataloader = DataLoader(dataset, batch_size=1, num_workers=1, shuffle=False)
 
     processed_midi_pieces = {}
 
     with torch.no_grad():
-        for batch in dataloader:
             filenames = batch["filename"]
-            pitches = batch["pitch"].to(device)
-            velocities = batch["velocity"].to(device)
-            dstarts = batch["dstart"].to(device)
-            durations = batch["duration"].to(device)
+            pitches = batch["pitch"][None, :].to(device)
+            velocities = batch["velocity"][None, :].to(device)
+            dstarts = batch["dstart"][None, :].to(device)
+            durations = batch["duration"][None, :].to(device)
 
             pred_pitches, pred_velocities, pred_dstarts, pred_durations, mask = model(
                 pitch=pitches,
@@ -177,13 +171,13 @@ def main():
     model.load_state_dict(checkpoint["model"])
     model.eval()
 
-    dataset_name = "JasiekKaczmarczyk/maestro-v1-sustain-masked"
-    save_path = "tmp/processed_files.pickle"
+    # dataset_name = "JasiekKaczmarczyk/maestro-v1-sustain-masked"
+    save_path = "tmp/processed_long_file.pickle"
 
     # makedir_if_not_exists(f"{save_path}/generated")
     # makedir_if_not_exists(f"{save_path}/original")
 
-    process_files_based_on_query(model, dataset_name=dataset_name, query=args.query, save_path=save_path, device=device)
+    process_file(model, index=105, save_path=save_path, device=device)
 
 
 if __name__ == "__main__":

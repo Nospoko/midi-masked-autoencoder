@@ -46,7 +46,7 @@ class MidiDataset(Dataset):
 
         record = self.apply_augmentation(record)
 
-        tokens = {
+        data = {
             "filename": record["midi_filename"],
             "source": record["source"],
             "pitch": torch.tensor(record["pitch"], dtype=torch.long) - 21,
@@ -55,4 +55,4 @@ class MidiDataset(Dataset):
             "duration": torch.tensor(record["duration"], dtype=torch.float).clip(0.0, 5.0),
         }
 
-        return tokens
+        return data

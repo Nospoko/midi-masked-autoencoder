@@ -14,7 +14,15 @@ train:
   device: "cuda"
   precision: "16-mixed" # not implemented yet
   overfit_single_batch: False
-  masking_ratio: 0.15
+  masking_ratio_scheduler:
+    0: 0.15
+    6e7: 0.2
+    12e7: 0.25
+    18e7: 0.3
+    24e7: 0.35
+    30e7: 0.4
+    36e7: 0.45
+    42e7: 0.5
   loss_lambdas:
     pitch: 0.2
     velocity: 1.

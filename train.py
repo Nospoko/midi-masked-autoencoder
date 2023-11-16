@@ -14,6 +14,7 @@ from datasets import load_dataset, concatenate_datasets
 import wandb
 from data.dataset import MidiDataset
 from models.mae import MidiMaskedAutoencoder
+from models.scheduler import MaskingRatioScheduler
 
 
 def makedir_if_not_exists(dir: str):
@@ -225,7 +226,8 @@ def train(cfg: OmegaConf):
     )
 
     device = torch.device(cfg.train.device)
-    masking_ratio = cfg.train.masking_ratio
+    scheduler = MaskingRatioScheduler(cfg.train.masking_ratio_scheduler)
+    
     loss_lambdas = cfg.train.loss_lambdas
 
     # model
@@ -255,6 +257,7 @@ def train(cfg: OmegaConf):
 
     # step counts for logging to wandb
     step_count = 0
+    num_tokens_processed = 0
 
     for epoch in range(cfg.train.num_epochs):
         # train epoch
@@ -268,28 +271,20 @@ def train(cfg: OmegaConf):
         pitch_acc_epoch = 0.0
 
         for batch_idx, batch in train_loop:
+            num_tokens_processed += torch.numel(batch["pitch"])
+            masking_ratio = scheduler.get_masking_ratio(num_tokens_processed)
+
             # metrics returns loss and additional metrics if specified in step function
             loss, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc = forward_step(
                 model, batch, masking_ratio, loss_lambdas, device
             )
-
-            # if dstart_loss > 1.0:
-            #     import matplotlib.pyplot as plt
-            #     import numpy as np
-            #     ds = batch["dstart"].numpy()
-            #     print(ds.max())
-            #     print(ds.min())
-            #     print(ds.mean())
-            #     print(np.median(ds))
-            #     plt.hist(ds.reshape(-1))
-            #     plt.show()
-            #     return
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
             stats = {
+                "masking_ratio": masking_ratio,
                 "loss": loss.item(),
                 "pitch_loss": pitch_loss.item(),
                 "velocity_loss": velocity_loss.item(),
