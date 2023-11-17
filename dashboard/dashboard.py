@@ -18,7 +18,7 @@ device = "cpu"
 
 
 def display_pianoroll(processing_result: dict):
-    st.json(processing_result["source"])
+    st.json(processing_result["source"], expanded=False)
 
     col1, col2 = st.columns(2)
 
