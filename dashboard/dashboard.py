@@ -3,32 +3,36 @@ import pickle
 from glob import glob
 
 import torch
+import numpy as np
 import pandas as pd
 import fortepyan as ff
 import streamlit as st
 from omegaconf import OmegaConf
+from torch.utils.data import DataLoader
 from datasets import Dataset, load_dataset
 from streamlit_pianoroll import from_fortepyan
 
 from data.dataset import MidiDataset
 from models.mae import MidiMaskedAutoencoder
 
+device = "cpu"
 
-def display_pianoroll(title: str, midi_pieces: dict[ff.MidiPiece, ff.MidiPiece]):
-    st.title(title)
+
+def display_pianoroll(processing_result: dict):
+    st.json(processing_result["source"])
 
     col1, col2 = st.columns(2)
 
     with col1:
         st.write("### Original")
-        from_fortepyan(midi_pieces["original"])
-        fig = ff.view.draw_dual_pianoroll(midi_pieces["original"])
+        from_fortepyan(processing_result["original"])
+        fig = ff.view.draw_dual_pianoroll(processing_result["original"])
         st.pyplot(fig)
 
     with col2:
         st.write("### Generated")
-        from_fortepyan(midi_pieces["generated"])
-        fig = ff.view.draw_dual_pianoroll(midi_pieces["generated"])
+        from_fortepyan(processing_result["generated"])
+        fig = ff.view.draw_dual_pianoroll(processing_result["generated"])
         st.pyplot(fig)
 
 
@@ -48,14 +52,38 @@ def not_main():
     )
 
 
+def denormalize_velocity(velocity: np.ndarray):
+    return ((velocity + 1) * 64).astype("int")
+
+
+def to_midi_piece(
+    pitch: np.ndarray,
+    dstart: np.ndarray,
+    duration: np.ndarray,
+    velocity: np.ndarray,
+    mask: np.ndarray = None,
+) -> ff.MidiPiece:
+    record = {
+        "pitch": pitch,
+        "velocity": velocity,
+        "dstart": dstart.astype("float"),
+        "duration": duration.astype("float"),
+        "mask": mask,
+    }
+
+    df = pd.DataFrame(record)
+    df["start"] = df.dstart.cumsum().shift(1).fillna(0)
+    df["end"] = df.start + df.duration
+
+    return ff.MidiPiece(df)
+
+
 @st.cache_data
 def get_model(checkpoint_path: str) -> MidiMaskedAutoencoder:
     checkpoint = torch.load(checkpoint_path)
 
     cfg = checkpoint["config"]
     st.json(OmegaConf.to_container(cfg), expanded=False)
-
-    device = "cpu"
 
     model = MidiMaskedAutoencoder(
         encoder_dim=cfg.model.encoder_dim,
@@ -90,7 +118,7 @@ def get_dataset() -> Dataset:
 
 def main():
     # Load model
-    _ = model_selection()
+    model = model_selection()
 
     # Prep data
     dataset = get_dataset()
@@ -119,7 +147,100 @@ def main():
 
     idxs = part_df.index.values
     part_dataset = dataset.select(idxs)
-    _ = MidiDataset(part_dataset)
+    midi_dataset = MidiDataset(part_dataset)
+    generated_pieces = generate_pieces(midi_dataset=midi_dataset, model=model)
+
+    for processing_result in generated_pieces:
+        display_pianoroll(processing_result)
+
+
+@torch.no_grad()
+def generate_pieces(
+    midi_dataset: MidiDataset,
+    model: MidiMaskedAutoencoder,
+):
+    dataloader = DataLoader(midi_dataset, batch_size=256, shuffle=True)
+
+    generated_pieces = []
+    for batch in dataloader:
+        pitches = batch["pitch"].to(device)
+        velocities = batch["velocity"].to(device)
+        dstarts = batch["dstart"].to(device)
+        durations = batch["duration"].to(device)
+
+        pred_pitches, pred_velocities, pred_dstarts, pred_durations, mask = model(
+            pitch=pitches,
+            velocity=velocities,
+            dstart=dstarts,
+            duration=durations,
+            masking_ratio=0.5,
+        )
+
+        # replace tokens that were masked with generated values
+        mask = mask.detach().bool()
+        pred_pitches = torch.argmax(pred_pitches, dim=-1)
+
+        gen_pitches = torch.where(mask, pred_pitches, pitches)
+        gen_velocities = torch.where(mask, pred_velocities, velocities)
+        gen_dstarts = torch.where(mask, pred_dstarts, dstarts)
+        gen_durations = torch.where(mask, pred_durations, durations)
+
+        generated_pieces += decode_batch(
+            batch=batch,
+            gen_pitches=gen_pitches,
+            gen_velocities=gen_velocities,
+            gen_dstarts=gen_dstarts,
+            gen_durations=gen_durations,
+            mask=mask,
+        )
+
+    return generated_pieces
+
+
+def decode_batch(
+    batch: torch.Tensor,
+    gen_pitches: torch.Tensor,
+    gen_velocities: torch.Tensor,
+    gen_dstarts: torch.Tensor,
+    gen_durations: torch.Tensor,
+    mask: torch.Tensor,
+):
+    sources = batch["source"]
+    pitches = batch["pitch"].to(device)
+    velocities = batch["velocity"].to(device)
+    dstarts = batch["dstart"].to(device)
+    durations = batch["duration"].to(device)
+
+    batch_size = pitches.shape[0]
+
+    generated_pieces = []
+    for it in range(batch_size):
+        pitch = pitches[it].cpu().numpy() + 21
+        velocity = velocities[it].cpu().numpy()
+        dstart = dstarts[it].cpu().numpy()
+        duration = durations[it].cpu().numpy()
+
+        gen_pitch = gen_pitches[it].cpu().numpy() + 21
+        gen_velocity = gen_velocities[it].cpu().numpy()
+        gen_dstart = gen_dstarts[it].cpu().numpy()
+        gen_duration = gen_durations[it].cpu().numpy()
+
+        m = mask[it].cpu().numpy()
+
+        velocity = denormalize_velocity(velocity)
+        gen_velocity = denormalize_velocity(gen_velocity)
+
+        original_piece = to_midi_piece(pitch, dstart, duration, velocity, mask=m)
+        model_piece = to_midi_piece(gen_pitch, gen_dstart, gen_duration, gen_velocity, mask=m)
+
+        processing_result = {
+            "original": original_piece,
+            "generated": model_piece,
+            "source": json.loads(sources[it]),
+        }
+        generated_pieces.append(processing_result)
+
+    return generated_pieces
 
 
 if __name__ == "__main__":

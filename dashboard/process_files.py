@@ -28,7 +28,7 @@ def preprocess_dataset(
 
     midi_dataset = MidiDataset(dataset)
 
-    idx_query = [i for i, name in enumerate(midi_dataset.dataset["source"]) if str.lower(query) in str.lower(name)]
+    idx_query = [it for it, name in enumerate(midi_dataset.dataset["source"]) if str.lower(query) in str.lower(name)]
 
     part_midi_dataset = Subset(midi_dataset, indices=list(idx_query))
 
@@ -41,13 +41,13 @@ def display_audio(title: str, midi_files: list[str], mp3_files: list[str]):
     cols = st.columns([2, 2])
     fig_titles = ["### Original", "### Model"]
 
-    for i, col in enumerate(cols):
+    for it, col in enumerate(cols):
         with col:
-            st.write(fig_titles[i])
-            piece = ff.MidiFile(midi_files[i]).piece
+            st.write(fig_titles[it])
+            piece = ff.MidiFile(midi_files[it]).piece
             fig = ff.view.draw_pianoroll_with_velocities(piece)
             st.pyplot(fig)
-            st.audio(mp3_files[i], format="audio/mp3")
+            st.audio(mp3_files[it], format="audio/mp3")
 
 
 def denormalize_velocity(velocity: np.ndarray):
@@ -110,30 +110,25 @@ def process_files_based_on_query(
             mask = mask.detach().bool()
             pred_pitches = torch.argmax(pred_pitches, dim=-1)
 
-            # gen_pitches = pred_pitches
-            # gen_velocities = pred_velocities
-            # gen_dstarts = pred_dstarts
-            # gen_durations = pred_durations
-
             # replace tokens that were masked with generated values
             gen_pitches = torch.where(mask, pred_pitches, pitches)
             gen_velocities = torch.where(mask, pred_velocities, velocities)
             gen_dstarts = torch.where(mask, pred_dstarts, dstarts)
             gen_durations = torch.where(mask, pred_durations, durations)
 
-            for i in range(len(pitches)):
-                name = f"{filenames[i]}-{str(uuid.uuid1())[:8]}"
+            for it in range(len(pitches)):
+                name = f"{filenames[it]}-{str(uuid.uuid1())[:8]}"
 
-                pitch = pitches[i].cpu().numpy() + 21
-                velocity = velocities[i].cpu().numpy()
-                dstart = dstarts[i].cpu().numpy()
-                duration = durations[i].cpu().numpy()
-                gen_pitch = gen_pitches[i].cpu().numpy() + 21
-                gen_velocity = gen_velocities[i].cpu().numpy()
-                gen_dstart = gen_dstarts[i].cpu().numpy()
-                gen_duration = gen_durations[i].cpu().numpy()
+                pitch = pitches[it].cpu().numpy() + 21
+                velocity = velocities[it].cpu().numpy()
+                dstart = dstarts[it].cpu().numpy()
+                duration = durations[it].cpu().numpy()
+                gen_pitch = gen_pitches[it].cpu().numpy() + 21
+                gen_velocity = gen_velocities[it].cpu().numpy()
+                gen_dstart = gen_dstarts[it].cpu().numpy()
+                gen_duration = gen_durations[it].cpu().numpy()
 
-                m = mask[i].cpu().numpy()
+                m = mask[it].cpu().numpy()
 
                 velocity = denormalize_velocity(velocity)
                 gen_velocity = denormalize_velocity(gen_velocity)
@@ -150,8 +145,8 @@ def process_files_based_on_query(
                 # model_midi = model_piece.to_midi()
 
                 # # save as midi
-                # original_midi.write(f"{save_path}/original/{query}-{i}-original.midi")
-                # model_midi.write(f"{save_path}/generated/{query}-{i}-model.midi")
+                # original_midi.write(f"{save_path}/original/{query}-{it}-original.midi")
+                # model_midi.write(f"{save_path}/generated/{query}-{it}-model.midi")
 
     with open(save_path, "wb") as handle:
         pickle.dump(processed_midi_pieces, handle)
