@@ -1,5 +1,4 @@
 import json
-import pickle
 from glob import glob
 
 import torch
@@ -34,22 +33,6 @@ def display_pianoroll(processing_result: dict):
         from_fortepyan(processing_result["generated"])
         fig = ff.view.draw_dual_pianoroll(processing_result["generated"])
         st.pyplot(fig)
-
-
-def not_main():
-    st.set_page_config(layout="wide")
-
-    with open("tmp/processed_files.pickle", "rb") as handle:
-        unserialized_data = pickle.load(handle)
-
-    files = unserialized_data.keys()
-
-    selected_filename = st.selectbox("Select piece to display", options=files)
-
-    display_pianoroll(
-        title=selected_filename,
-        midi_pieces=unserialized_data[selected_filename],
-    )
 
 
 def denormalize_velocity(velocity: np.ndarray):
