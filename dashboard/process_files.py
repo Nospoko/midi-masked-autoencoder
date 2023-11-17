@@ -23,19 +23,19 @@ def makedir_if_not_exists(dir: str):
 def preprocess_dataset(
     dataset_name: str,
     query: str,
-):
+) -> Subset:
     dataset = load_dataset(dataset_name, split="validation")
 
-    ds = MidiDataset(dataset)
+    midi_dataset = MidiDataset(dataset)
 
-    idx_query = [i for i, name in enumerate(ds.dataset["source"]) if str.lower(query) in str.lower(name)]
+    idx_query = [i for i, name in enumerate(midi_dataset.dataset["source"]) if str.lower(query) in str.lower(name)]
 
-    ds = Subset(ds, indices=list(idx_query))
+    part_midi_dataset = Subset(midi_dataset, indices=list(idx_query))
 
-    return ds
+    return part_midi_dataset
 
 
-def display_audio(title, midi_files: list[str], mp3_files: list[str]):
+def display_audio(title: str, midi_files: list[str], mp3_files: list[str]):
     st.title(title)
 
     cols = st.columns([2, 2])
@@ -55,7 +55,11 @@ def denormalize_velocity(velocity: np.ndarray):
 
 
 def to_midi_piece(
-    pitch: np.ndarray, dstart: np.ndarray, duration: np.ndarray, velocity: np.ndarray, mask: np.ndarray = None
+    pitch: np.ndarray,
+    dstart: np.ndarray,
+    duration: np.ndarray,
+    velocity: np.ndarray,
+    mask: np.ndarray = None,
 ) -> ff.MidiPiece:
     record = {
         "pitch": pitch,
@@ -158,7 +162,7 @@ def main():
     parser.add_argument("--query", type=str)
     args = parser.parse_args()
 
-    checkpoint = torch.load("checkpoints/mae10m-2023-11-09-10-35-params-9.88M.ckpt")
+    checkpoint = torch.load("checkpoints/mae10m-2023-11-16-21-23-params-9.88M.ckpt")
 
     cfg = checkpoint["config"]
     # device = cfg.train.device
@@ -183,7 +187,13 @@ def main():
     # makedir_if_not_exists(f"{save_path}/generated")
     # makedir_if_not_exists(f"{save_path}/original")
 
-    process_files_based_on_query(model, dataset_name=dataset_name, query=args.query, save_path=save_path, device=device)
+    process_files_based_on_query(
+        model=model,
+        dataset_name=dataset_name,
+        query=args.query,
+        save_path=save_path,
+        device=device,
+    )
 
 
 if __name__ == "__main__":

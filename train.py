@@ -2,6 +2,7 @@ import os
 
 import hydra
 import torch
+import wandb
 from tqdm import tqdm
 import torch.optim as optim
 import torch.nn.functional as F
@@ -11,7 +12,6 @@ from huggingface_hub import upload_file
 from torch.utils.data import Subset, DataLoader
 from datasets import load_dataset, concatenate_datasets
 
-import wandb
 from data.dataset import MidiDataset
 from models.mae import MidiMaskedAutoencoder
 from models.scheduler import MaskingRatioScheduler
@@ -227,7 +227,7 @@ def train(cfg: OmegaConf):
 
     device = torch.device(cfg.train.device)
     scheduler = MaskingRatioScheduler(cfg.train.masking_ratio_scheduler)
-    
+
     loss_lambdas = cfg.train.loss_lambdas
 
     # model

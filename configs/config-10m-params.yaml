@@ -16,13 +16,13 @@ train:
   overfit_single_batch: False
   masking_ratio_scheduler:
     0: 0.15
-    6e7: 0.2
-    12e7: 0.25
-    18e7: 0.3
-    24e7: 0.35
-    30e7: 0.4
-    36e7: 0.45
-    42e7: 0.5
+    1e8: 0.2
+    2e8: 0.25
+    3e8: 0.3
+    4e8: 0.35
+    5e8: 0.4
+    6e8: 0.45
+    7e8: 0.5
   loss_lambdas:
     pitch: 1.
     velocity: 1.
@@ -41,7 +41,7 @@ model:
 
 paths:
   save_ckpt_dir: "checkpoints" # directory where checkpoints will be saved
-  load_ckpt_path: "checkpoints/mae10m-2023-11-09-09-28-params-9.88M.ckpt" # if not None, specifies path to model state dict which will be loaded
+  load_ckpt_path: null
   log_dir: "logs"
   hf_repo_id: null # repo id to upload model to huggingface if null model is not uploaded
 
