@@ -61,7 +61,7 @@ def to_midi_piece(
     return ff.MidiPiece(df)
 
 
-@st.cache_data
+# @st.cache_data
 def get_model(checkpoint_path: str) -> MidiMaskedAutoencoder:
     checkpoint = torch.load(checkpoint_path)
 
@@ -131,7 +131,18 @@ def main():
     idxs = part_df.index.values
     part_dataset = dataset.select(idxs)
     midi_dataset = MidiDataset(part_dataset)
-    generated_pieces = generate_pieces(midi_dataset=midi_dataset, model=model)
+
+    masking_ratio = st.number_input(
+        label="Masking ration",
+        min_value=0.05,
+        max_value=1.0,
+        value=0.5,
+    )
+    generated_pieces = generate_pieces(
+        midi_dataset=midi_dataset,
+        model=model,
+        masking_ratio=masking_ratio,
+    )
 
     for processing_result in generated_pieces:
         display_pianoroll(processing_result)
@@ -141,6 +152,7 @@ def main():
 def generate_pieces(
     midi_dataset: MidiDataset,
     model: MidiMaskedAutoencoder,
+    masking_ratio: float,
 ):
     dataloader = DataLoader(midi_dataset, batch_size=256, shuffle=True)
 
@@ -156,7 +168,7 @@ def generate_pieces(
             velocity=velocities,
             dstart=dstarts,
             duration=durations,
-            masking_ratio=0.5,
+            masking_ratio=masking_ratio,
         )
 
         # replace tokens that were masked with generated values

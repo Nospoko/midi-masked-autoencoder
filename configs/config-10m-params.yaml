@@ -16,17 +16,17 @@ train:
   overfit_single_batch: False
   masking_ratio_scheduler:
     0: 0.15
-    1e8: 0.2
-    2e8: 0.25
-    3e8: 0.3
-    4e8: 0.35
-    5e8: 0.4
-    6e8: 0.45
-    7e8: 0.5
+    3e8: 0.2
+    6e8: 0.25
+    9e8: 0.3
+    12e8: 0.35
+    15e8: 0.4
+    18e8: 0.45
+    21e8: 0.5
   loss_lambdas:
-    pitch: 1.
+    pitch: 0.5
     velocity: 1.
-    dstart: 1.
+    dstart: 1.5
     duration: 1.
 
 
