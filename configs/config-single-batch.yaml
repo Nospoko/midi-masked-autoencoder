@@ -14,6 +14,9 @@ train:
   device: "cuda"
   precision: "16-mixed" # not implemented yet
   overfit_single_batch: True
+  use_dstart_log_normalization: True
+  use_gradnorm: True
+  gn_restoring_force: 1.5
   masking_ratio_scheduler:
     0: 0.15
     6e7: 0.2
@@ -38,6 +41,7 @@ model:
   decoder_depth: 4
   decoder_num_heads: 8
   mlp_ratio: 2.
+  dynamics_embedding_depth: 4
 
 paths:
   save_ckpt_dir: "checkpoints" # directory where checkpoints will be saved

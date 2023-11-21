@@ -30,6 +30,7 @@ def preprocess_dataset(
     pitch_shift_probability: float,
     time_stretch_probability: float,
     *,
+    use_dstart_log_normalization: bool = False,
     overfit_single_batch: bool = False,
 ):
     hf_token = os.environ["HUGGINGFACE_TOKEN"]
@@ -55,9 +56,19 @@ def preprocess_dataset(
         train_ds,
         pitch_shift_probability=pitch_shift_probability,
         time_stretch_probability=time_stretch_probability,
+        use_dstart_log_normalization=use_dstart_log_normalization,
     )
-    val_ds = MidiDataset(val_ds, pitch_shift_probability=0.0, time_stretch_probability=0.0)
-    test_ds = MidiDataset(test_ds, pitch_shift_probability=0.0, time_stretch_probability=0.0)
+    val_ds = MidiDataset(val_ds, 
+        pitch_shift_probability=0.0, 
+        time_stretch_probability=0.0, 
+        use_dstart_log_normalization=use_dstart_log_normalization,
+    )
+    test_ds = MidiDataset(
+        test_ds, 
+        pitch_shift_probability=0.0, 
+        time_stretch_probability=0.0,
+        use_dstart_log_normalization=use_dstart_log_normalization,
+    )
 
     if overfit_single_batch:
         train_ds = Subset(train_ds, indices=range(batch_size))
@@ -202,6 +213,7 @@ def train(cfg: OmegaConf):
         num_workers=cfg.train.num_workers,
         pitch_shift_probability=cfg.train.pitch_shift_probability,
         time_stretch_probability=cfg.train.time_stretch_probability,
+        use_dstart_log_normalization=cfg.train.use_dstart_log_normalization,
         overfit_single_batch=cfg.train.overfit_single_batch,
     )
 
@@ -212,6 +224,7 @@ def train(cfg: OmegaConf):
         num_workers=cfg.train.num_workers,
         pitch_shift_probability=cfg.train.pitch_shift_probability,
         time_stretch_probability=cfg.train.time_stretch_probability,
+        use_dstart_log_normalization=cfg.train.use_dstart_log_normalization,
         overfit_single_batch=cfg.train.overfit_single_batch,
     )
 
@@ -235,6 +248,7 @@ def train(cfg: OmegaConf):
         decoder_depth=cfg.model.decoder_depth,
         decoder_num_heads=cfg.model.decoder_num_heads,
         mlp_ratio=cfg.model.mlp_ratio,
+        dynamics_embedding_depth=cfg.model.dynamics_embedding_depth,
     ).to(device)
 
     # setting up optimizer

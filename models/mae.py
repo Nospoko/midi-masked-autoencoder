@@ -11,11 +11,33 @@ class OutputBlock(nn.Module):
         super().__init__()
 
         self.block = nn.Sequential(
-            nn.Linear(features, features), nn.SiLU(), nn.Linear(features, features), nn.SiLU(), nn.Linear(features, out_features)
+            nn.Linear(features, features), 
+            nn.SiLU(), 
+            nn.Linear(features, features), 
+            nn.SiLU(), 
+            nn.Linear(features, out_features),
         )
 
     def forward(self, x: torch.Tensor):
         return self.block(x)
+    
+class DynamicsEmbeddingLayer(nn.Module):
+    def __init__(self, in_features: int = 3, hidden_features: int = 384, out_features: int = 384, depth: int = 4):
+        super().__init__()
+
+        layer_dims = [in_features] + [hidden_features for _ in range(depth)]
+
+        layers = []
+
+        for ins, outs in zip(layer_dims[:-1], layer_dims[1:]):
+            layers += [nn.Linear(ins, outs), nn.SiLU()]
+        
+        layers += [nn.Linear(layer_dims[-1], out_features)]
+
+        self.dynamics_embedding = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor):
+        return self.dynamics_embedding(x)
 
 
 class MidiMaskedAutoencoder(nn.Module):
@@ -28,13 +50,20 @@ class MidiMaskedAutoencoder(nn.Module):
         decoder_depth: int = 8,
         decoder_num_heads: int = 16,
         mlp_ratio: float = 4.0,
+        dynamics_embedding_depth: int = 4,
     ):
         super().__init__()
 
         # embedding
         encoder_half_dim = encoder_dim // 2
         self.pitch_embedding = nn.Embedding(num_embeddings=88, embedding_dim=encoder_half_dim)
-        self.dynamics_embedding = nn.Linear(3, encoder_half_dim)
+        # self.dynamics_embedding = nn.Linear(3, encoder_half_dim)
+        self.dynamics_embedding = DynamicsEmbeddingLayer(
+            in_features=3,
+            hidden_features=encoder_half_dim,
+            out_features=encoder_half_dim,
+            depth=dynamics_embedding_depth,
+        )
 
         # encoder
         self.cls_token = nn.Parameter(torch.zeros(1, 1, encoder_dim))
@@ -116,6 +145,7 @@ class MidiMaskedAutoencoder(nn.Module):
         x = self.decoder_embedding(x)
 
         # append masked tokens
+        # ids_restore.shape[1] + 1 - x.shape[1] means: whole sequence len + cls_token - not masked tokens = masked tokens len
         mask_tokens = self.mask_token.repeat(x.shape[0], ids_restore.shape[1] + 1 - x.shape[1], 1)
         # cat without cls token
         x_ = torch.cat([x[:, 1:, :], mask_tokens], dim=1)
