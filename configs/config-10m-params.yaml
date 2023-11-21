@@ -18,17 +18,17 @@ train:
   gn_restoring_force: 1.5
   masking_ratio_scheduler:
     0: 0.15
-    6e7: 0.2
-    12e7: 0.25
-    18e7: 0.3
-    24e7: 0.35
-    30e7: 0.4
-    36e7: 0.45
-    42e7: 0.5
+    3e8: 0.2
+    6e8: 0.25
+    9e8: 0.3
+    12e8: 0.35
+    15e8: 0.4
+    18e8: 0.45
+    21e8: 0.5
   loss_lambdas:
-    pitch: 1.
+    pitch: 0.5
     velocity: 1.
-    dstart: 1.
+    dstart: 1.5
     duration: 1.
 
 

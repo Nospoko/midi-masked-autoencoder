@@ -22,6 +22,12 @@ class MidiDataset(Dataset):
         self.pitch_shift_probability = pitch_shift_probability
         self.time_stretch_probability = time_stretch_probability
 
+    def __rich_repr__(self):
+        yield "MidiDataset"
+        yield "size", len(self)
+        yield "pitch_shift_prob", self.pitch_shift_probability
+        yield "time_stretch_prob", self.time_stretch_probability
+
     def __len__(self):
         return len(self.dataset)
 
