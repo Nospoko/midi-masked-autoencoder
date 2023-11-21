@@ -4,42 +4,40 @@ hydra:
 
 train:
   dataset_name: ["JasiekKaczmarczyk/giant-midi-sustain-masked", "JasiekKaczmarczyk/pianofor-ai-sustain-masked", "JasiekKaczmarczyk/maestro-v1-sustain-masked"] # huggingface dataset
-  batch_size: 256
+  batch_size: 512
   num_workers: 8
   lr: 3e-5
   weight_decay: 0.01
   pitch_shift_probability: 0.5
   time_stretch_probability: 0.5
-  num_epochs: 10
+  num_epochs: 20
   device: "cuda"
   precision: "16-mixed" # not implemented yet
   overfit_single_batch: False
-  use_gradnorm: True
-  gn_restoring_force: 1.5
   masking_ratio_scheduler:
     0: 0.15
-    3e8: 0.2
-    6e8: 0.25
-    9e8: 0.3
-    12e8: 0.35
-    15e8: 0.4
-    18e8: 0.45
-    21e8: 0.5
+    6e8: 0.2
+    12e8: 0.25
+    18e8: 0.3
+    24e8: 0.35
+    30e8: 0.4
+    36e8: 0.45
+    42e8: 0.5
   loss_lambdas:
-    pitch: 0.5
+    pitch: 1.
     velocity: 1.
-    dstart: 1.5
+    dstart: 1.
     duration: 1.
 
 
 model:
-  encoder_dim: 384
+  encoder_dim: 512
   encoder_depth: 6
   encoder_num_heads: 8
-  decoder_dim: 256
+  decoder_dim: 384
   decoder_depth: 4
   decoder_num_heads: 8
-  mlp_ratio: 2.
+  mlp_ratio: 3.
 
 paths:
   save_ckpt_dir: "checkpoints" # directory where checkpoints will be saved
@@ -48,5 +46,5 @@ paths:
   hf_repo_id: null # repo id to upload model to huggingface if null model is not uploaded
 
 logger:
-  run_name: mae10m-${now:%Y-%m-%d-%H-%M}
+  run_name: mae-baseline-${now:%Y-%m-%d-%H-%M}
   log_every_n_steps: 10

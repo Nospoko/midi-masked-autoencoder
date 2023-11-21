@@ -15,6 +15,7 @@ from datasets import load_dataset, concatenate_datasets
 from data.dataset import MidiDataset
 from models.mae import MidiMaskedAutoencoder
 from models.scheduler import MaskingRatioScheduler
+from models.gradnorm import GradNormLossWeighter
 
 
 def makedir_if_not_exists(dir: str):
@@ -75,7 +76,6 @@ def forward_step(
     model: MidiMaskedAutoencoder,
     batch: dict[str, torch.Tensor, torch.Tensor, torch.Tensor],
     masking_ratio: float,
-    loss_lambdas: dict,
     device: torch.device,
 ):
     pitch = batch["pitch"].to(device)
@@ -105,16 +105,12 @@ def forward_step(
     dstart_loss = (dstart_loss * mask).sum() / mask.sum()
     duration_loss = (duration_loss * mask).sum() / mask.sum()
 
-    loss = (
-        loss_lambdas.pitch * pitch_loss
-        + loss_lambdas.velocity * velocity_loss
-        + loss_lambdas.dstart * dstart_loss
-        + loss_lambdas.duration * duration_loss
-    )
+    # shape: [num_losses, ]
+    losses = torch.stack([pitch_loss, velocity_loss, dstart_loss, duration_loss])
 
     pitch_acc = M.accuracy(pred_pitch, pitch, task="multiclass", num_classes=88)
 
-    return loss, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc
+    return losses, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc
 
 
 @torch.no_grad()
@@ -122,7 +118,7 @@ def validation_epoch(
     model: MidiMaskedAutoencoder,
     dataloader: DataLoader,
     masking_ratio: float,
-    loss_lambdas: dict,
+    loss_lambdas: torch.Tensor,
     device: torch.device,
 ) -> dict:
     # val epoch
@@ -136,9 +132,11 @@ def validation_epoch(
 
     for batch_idx, batch in val_loop:
         # metrics returns loss and additional metrics if specified in step function
-        loss, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc = forward_step(
-            model, batch, masking_ratio, loss_lambdas, device
+        losses, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc = forward_step(
+            model, batch, masking_ratio, device
         )
+
+        loss = loss_lambdas @ losses
 
         val_loop.set_postfix(
             {
@@ -228,8 +226,6 @@ def train(cfg: OmegaConf):
     device = torch.device(cfg.train.device)
     scheduler = MaskingRatioScheduler(cfg.train.masking_ratio_scheduler)
 
-    loss_lambdas = cfg.train.loss_lambdas
-
     # model
     model = MidiMaskedAutoencoder(
         encoder_dim=cfg.model.encoder_dim,
@@ -243,6 +239,19 @@ def train(cfg: OmegaConf):
 
     # setting up optimizer
     optimizer = optim.AdamW(model.parameters(), lr=cfg.train.lr, weight_decay=cfg.train.weight_decay)
+
+    # get loss lambdas as tensor
+    loss_lambdas = torch.tensor(list(cfg.train.loss_lambdas.values()), dtype=torch.float, device=device)
+
+    if cfg.train.use_gradnorm:
+        backbone_parameter = model.decoder_out_norm.weight
+        loss_weighter = GradNormLossWeighter(
+            loss_weights=loss_lambdas,
+            restoring_force_alpha=cfg.train.gn_restoring_force,
+            grad_norm_parameters=backbone_parameter,
+        )
+    else:
+        loss_weighter = None
 
     # load checkpoint if specified in cfg
     if cfg.paths.load_ckpt_path is not None:
@@ -275,12 +284,17 @@ def train(cfg: OmegaConf):
             masking_ratio = scheduler.get_masking_ratio(num_tokens_processed)
 
             # metrics returns loss and additional metrics if specified in step function
-            loss, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc = forward_step(
-                model, batch, masking_ratio, loss_lambdas, device
+            losses, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc = forward_step(
+                model, batch, masking_ratio, device
             )
+            
+            loss = loss_lambdas @ losses
 
             optimizer.zero_grad()
-            loss.backward()
+            if loss_weighter:
+                loss_weighter.backward(losses)
+            else:
+                loss.backward()
             optimizer.step()
 
             stats = {
