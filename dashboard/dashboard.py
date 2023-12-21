@@ -1,5 +1,6 @@
 import json
 from glob import glob
+import random
 
 import torch
 import numpy as np
@@ -10,6 +11,7 @@ from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
 from datasets import Dataset, load_dataset
 from streamlit_pianoroll import from_fortepyan
+from omegaconf import DictConfig
 
 from data.dataset import MidiDataset
 from models.mae import MidiMaskedAutoencoder
@@ -20,23 +22,33 @@ device = "cpu"
 def display_pianoroll(processing_result: dict):
     st.json(processing_result["source"], expanded=False)
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         st.write("### Original")
         from_fortepyan(processing_result["original"])
-        fig = ff.view.draw_dual_pianoroll(processing_result["original"])
-        st.pyplot(fig)
+        # fig = ff.view.draw_dual_pianoroll(processing_result["original"])
+        # st.pyplot(fig)
 
     with col2:
+        st.write("### Masked")
+        record = processing_result["original"]
+        mask = record.df["mask"]
+        df = record.df[~mask]
+        from_fortepyan(ff.MidiPiece(df=df, source=record.source))
+        # fig = ff.view.draw_dual_pianoroll(processing_result["generated"])
+        # st.pyplot(fig)
+    with col3:
         st.write("### Generated")
         from_fortepyan(processing_result["generated"])
-        fig = ff.view.draw_dual_pianoroll(processing_result["generated"])
-        st.pyplot(fig)
 
 
 def denormalize_velocity(velocity: np.ndarray):
     return ((velocity + 1) * 64).astype("int")
+
+def denormalize_time_features(time_feature: np.ndarray, mean: float, std: float):
+    time_feature = std * time_feature + mean
+    return 2 ** time_feature - 1e-8
 
 
 def to_midi_piece(
@@ -76,35 +88,82 @@ def get_model(checkpoint_path: str) -> MidiMaskedAutoencoder:
         decoder_depth=cfg.model.decoder_depth,
         decoder_num_heads=cfg.model.decoder_num_heads,
         mlp_ratio=cfg.model.mlp_ratio,
+        dynamics_embedding_depth=cfg.model.dynamics_embedding_depth,
     ).to(device)
 
     model.load_state_dict(checkpoint["model"])
     model.eval()
 
-    return model
+    return model, cfg
 
 
 def model_selection() -> MidiMaskedAutoencoder:
     checkpoints = glob("checkpoints/*")
     checkpoint_path = st.selectbox("Select checkpoint", options=checkpoints)
 
-    model = get_model(checkpoint_path)
-    return model
+    model, cfg = get_model(checkpoint_path)
+    return model, cfg
 
 
 @st.cache_data
-def get_dataset() -> Dataset:
-    dataset_name = "JasiekKaczmarczyk/maestro-v1-sustain-masked"
-    dataset = load_dataset(dataset_name, split="validation")
+def get_dataset(dataset_name: str) -> Dataset:
+    # dataset_name = "JasiekKaczmarczyk/maestro-v1-sustain-masked"
+    dataset = load_dataset(dataset_name, split="train")
+
+    # available_splits = list(dataset.keys())
+    # split = st.selectbox("Choose split", options=available_splits)
+
     return dataset
+
+def slice_records(records: list[ff.MidiPiece], window_size: int):
+    sliced_records = []
+
+    for record in records:
+        n_samples = 1 + (record.size - window_size) // window_size
+        for it in range(n_samples):
+            start = it * window_size
+            finish = start + window_size
+            part = record[start:finish]
+
+            sliced_records.append(part)
+
+    return sliced_records
+
+def generate_midi_sequence(records: list[ff.MidiPiece]):
+    sequences = []
+
+    for record in records:
+        midi_filename = "tmp"
+        record.df["next_start"] = record.df.start.shift(-1)
+        record.df["dstart"] = record.df.next_start - record.df.start
+        record.df["dstart"] = record.df["dstart"].fillna(0)
+
+        sequence = {
+            "midi_filename": midi_filename,
+            "source": json.dumps(record.source),
+            "pitch": record.df.pitch.astype("int16").values,
+            "start": record.df.start.astype("float32").values,
+            "dstart": record.df.dstart.astype("float32").values,
+            "duration": record.df.duration.astype("float32").values,
+            "velocity": record.df.velocity.astype("int16").values,
+        }
+
+        sequences.append(sequence)
+
+    
+    return Dataset.from_list(sequences)
 
 
 def main():
     # Load model
-    model = model_selection()
+    model, cfg = model_selection()
 
     # Prep data
-    dataset = get_dataset()
+    dataset_name = st.selectbox(
+        label="Select dataset",
+        options=["roszcz/maestro-sustain-v2", "roszcz/giant-midi-sustain-v2"],
+    )
+    dataset = get_dataset(dataset_name)
     source = [json.loads(source) for source in dataset["source"]]
     source_df = pd.DataFrame(source)
 
@@ -122,26 +181,53 @@ def main():
         options=piece_titles,
     )
     st.write(selected_title)
-
-    ids = (source_df.composer == selected_composer) & (source_df.title == selected_title)
-    n_samples = 10
-    seed = 137
-    part_df = source_df[ids].sample(n_samples, random_state=seed)
-
-    idxs = part_df.index.values
-    part_dataset = dataset.select(idxs)
-    midi_dataset = MidiDataset(part_dataset)
-
     masking_ratio = st.number_input(
-        label="Masking ration",
+        label="Masking ratio",
         min_value=0.05,
         max_value=1.0,
         value=0.5,
     )
+
+    ids = (source_df.composer == selected_composer) & (source_df.title == selected_title)
+    part_df = source_df[ids]
+    part_dataset = dataset.select(part_df.index.values)
+    records = []
+
+    for ds in part_dataset:
+        record = ff.MidiPiece.from_huggingface(ds)
+        records.append(record)
+
+    display_option = st.select_slider("Display type:", ["Random Windows", "Specific window"])
+
+    if display_option == "Random Windows":
+        num_displayed_records = st.number_input(label="Number of displayed records", min_value=1, value=10)
+        window_size = st.number_input(label="Number of notes in each window", min_value=16, value=128)
+
+        sliced_records = slice_records(records, window_size=window_size)
+        sampled_records = random.sample(sliced_records, k=num_displayed_records)
+    else:
+        start_note = st.number_input("Start note", value=0)
+        window_size = st.number_input(label="Number of notes in window", min_value=16, value=128)
+
+        sampled_records = [records[0][start_note : start_note + window_size]]
+
+    midi_sequences = generate_midi_sequence(sampled_records)
+    
+    midi_dataset = MidiDataset(midi_sequences, use_dstart_log_normalization=cfg.train.use_dstart_log_normalization)
+
+    if cfg.train.use_dstart_log_normalization:
+        mean_dstart = midi_dataset.mean_dstart
+        std_dstart = midi_dataset.std_dstart
+    else:
+        mean_dstart = None
+        std_dstart = None
+
     generated_pieces = generate_pieces(
         midi_dataset=midi_dataset,
         model=model,
         masking_ratio=masking_ratio,
+        mean_dstart=mean_dstart,
+        std_dstart=std_dstart,
     )
 
     for processing_result in generated_pieces:
@@ -153,6 +239,8 @@ def generate_pieces(
     midi_dataset: MidiDataset,
     model: MidiMaskedAutoencoder,
     masking_ratio: float,
+    mean_dstart: float = None,
+    std_dstart: float = None,
 ):
     dataloader = DataLoader(midi_dataset, batch_size=256, shuffle=True)
 
@@ -187,6 +275,8 @@ def generate_pieces(
             gen_dstarts=gen_dstarts,
             gen_durations=gen_durations,
             mask=mask,
+            mean_dstart=mean_dstart,
+            std_dstart=std_dstart,
         )
 
     return generated_pieces
@@ -199,6 +289,8 @@ def decode_batch(
     gen_dstarts: torch.Tensor,
     gen_durations: torch.Tensor,
     mask: torch.Tensor,
+    mean_dstart: float = None,
+    std_dstart: float = None,
 ):
     sources = batch["source"]
     pitches = batch["pitch"].to(device)
@@ -224,6 +316,10 @@ def decode_batch(
 
         velocity = denormalize_velocity(velocity)
         gen_velocity = denormalize_velocity(gen_velocity)
+
+        if mean_dstart is not None and std_dstart is not None:
+            dstart = denormalize_time_features(dstart, mean=mean_dstart, std=std_dstart)
+            gen_dstart = denormalize_time_features(gen_dstart, mean=mean_dstart, std=std_dstart)
 
         original_piece = to_midi_piece(pitch, dstart, duration, velocity, mask=m)
         model_piece = to_midi_piece(gen_pitch, gen_dstart, gen_duration, gen_velocity, mask=m)

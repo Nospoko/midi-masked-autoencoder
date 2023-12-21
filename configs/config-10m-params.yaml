@@ -10,22 +10,15 @@ train:
   weight_decay: 0.01
   pitch_shift_probability: 0.5
   time_stretch_probability: 0.5
-  num_epochs: 20
+  num_epochs: 30
   device: "cuda"
   precision: "16-mixed" # not implemented yet
   overfit_single_batch: False
-  use_dstart_log_normalization: True
-  use_gradnorm: True
+  use_dstart_log_normalization: False
+  use_gradnorm: False
   gn_restoring_force: 1.5
   masking_ratio_scheduler:
-    0: 0.15
-    3e7: 0.2
-    6e7: 0.25
-    9e7: 0.3
-    12e7: 0.35
-    15e7: 0.4
-    18e7: 0.45
-    21e7: 0.5
+    0: 0.5
   loss_lambdas:
     pitch: 0.5
     velocity: 1.
@@ -51,4 +44,4 @@ paths:
 
 logger:
   run_name: mae10m-${now:%Y-%m-%d-%H-%M}
-  log_every_n_steps: 100
+  log_every_n_steps: 1000

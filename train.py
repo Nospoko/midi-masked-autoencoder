@@ -119,9 +119,13 @@ def forward_step(
     # shape: [num_losses, ]
     losses = torch.stack([pitch_loss, velocity_loss, dstart_loss, duration_loss])
 
-    pitch_acc = M.accuracy(pred_pitch, pitch, task="multiclass", num_classes=88)
+    mask_idx = mask.to(torch.bool)
+    pitch_acc = (torch.argmax(pred_pitch, dim=1)[mask_idx] == pitch[mask_idx]).float().mean()
+    velocity_r2 = M.r2_score(pred_velocity[mask_idx], velocity[mask_idx])
+    dstart_r2 = M.r2_score(pred_dstart[mask_idx], dstart[mask_idx])
+    duration_r2 = M.r2_score(pred_duration[mask_idx], duration[mask_idx])
 
-    return losses, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc
+    return losses, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc, velocity_r2, dstart_r2, duration_r2
 
 
 @torch.no_grad()
@@ -140,10 +144,13 @@ def validation_epoch(
     dstart_loss_epoch = 0.0
     duration_loss_epoch = 0.0
     pitch_acc_epoch = 0.0
+    velocity_r2_epoch = 0.0
+    dstart_r2_epoch = 0.0
+    duration_r2_epoch = 0.0
 
     for batch_idx, batch in val_loop:
         # metrics returns loss and additional metrics if specified in step function
-        losses, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc = forward_step(
+        losses, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc, velocity_r2, dstart_r2, duration_r2 = forward_step(
             model, batch, masking_ratio, device
         )
 
@@ -166,6 +173,9 @@ def validation_epoch(
         dstart_loss_epoch += dstart_loss.item()
         duration_loss_epoch += duration_loss.item()
         pitch_acc_epoch += pitch_acc.item()
+        velocity_r2_epoch += velocity_r2.item()
+        dstart_r2_epoch += dstart_r2.item()
+        duration_r2_epoch += duration_r2.item()
 
     metrics = {
         "loss_epoch": loss_epoch / len(dataloader),
@@ -174,6 +184,9 @@ def validation_epoch(
         "dstart_loss": dstart_loss_epoch / len(dataloader),
         "duration_loss": duration_loss_epoch / len(dataloader),
         "pitch_acc": pitch_acc_epoch / len(dataloader),
+        "velocity_r2_epoch": velocity_r2_epoch / len(dataloader),
+        "dstart_r2_epoch": dstart_r2_epoch / len(dataloader),
+        "duration_r2_epoch": duration_r2_epoch / len(dataloader),
     }
     return metrics
 
@@ -292,13 +305,16 @@ def train(cfg: OmegaConf):
         dstart_loss_epoch = 0.0
         duration_loss_epoch = 0.0
         pitch_acc_epoch = 0.0
+        velocity_r2_epoch = 0.0
+        dstart_r2_epoch = 0.0
+        duration_r2_epoch = 0.0
 
         for batch_idx, batch in train_loop:
             num_tokens_processed += torch.numel(batch["pitch"])
             masking_ratio = scheduler.get_masking_ratio(num_tokens_processed)
 
             # metrics returns loss and additional metrics if specified in step function
-            losses, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc = forward_step(
+            losses, pitch_loss, velocity_loss, dstart_loss, duration_loss, pitch_acc, velocity_r2, dstart_r2, duration_r2 = forward_step(
                 model, batch, masking_ratio, device
             )
             
@@ -319,6 +335,9 @@ def train(cfg: OmegaConf):
                 "dstart_loss": dstart_loss.item(),
                 "duration_loss": duration_loss.item(),
                 "pitch_acc": pitch_acc.item(),
+                "velocity_r2": velocity_r2.item(),
+                "dstart_r2": dstart_r2.item(),
+                "duration_r2": duration_r2.item(),
             }
 
             train_loop.set_postfix(stats)
@@ -330,6 +349,9 @@ def train(cfg: OmegaConf):
             dstart_loss_epoch += dstart_loss.item()
             duration_loss_epoch += duration_loss.item()
             pitch_acc_epoch += pitch_acc.item()
+            velocity_r2_epoch += velocity_r2.item()
+            dstart_r2_epoch += dstart_r2.item()
+            duration_r2_epoch += duration_r2.item()
 
             if (batch_idx + 1) % cfg.logger.log_every_n_steps == 0:
                 stats = {"train/" + key: value for key, value in stats.items()}
@@ -347,6 +369,9 @@ def train(cfg: OmegaConf):
             "train/dstart_loss_epoch": dstart_loss_epoch / len(train_dataloader),
             "train/duration_loss_epoch": duration_loss_epoch / len(train_dataloader),
             "train/pitch_acc_epoch": pitch_acc_epoch / len(train_dataloader),
+            "velocity_r2_epoch": velocity_r2_epoch / len(train_dataloader),
+            "dstart_r2_epoch": dstart_r2_epoch / len(train_dataloader),
+            "duration_r2_epoch": duration_r2_epoch / len(train_dataloader),
         }
 
         model.eval()
