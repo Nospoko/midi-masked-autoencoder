@@ -21,7 +21,7 @@ def main():
 
     note_idx = np.random.choice(piece.size)
 
-    single_note_df = piece.df[note_idx : note_idx + 1]
+    single_note_df = piece.df[note_idx : note_idx + 1].copy()
     single_note_piece = ff.MidiPiece(df=single_note_df)
 
     missing_note_df = piece.df.drop(note_idx)
